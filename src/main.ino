@@ -37,6 +37,8 @@ const char* ap_default_psk = "esp8266esp8266"; ///< Default PSK.
 /// @}
 
 #define UDPLOCALPORT 4201
+unsigned int localUdpPort = UDPLOCALPORT;  // local port to listen on
+
 
 char incomingPacket[255];  // buffer for incoming packets
 
@@ -135,8 +137,6 @@ void setup()
   //Activate serial bridge.
   pinMode(ENABLEPIN,OUTPUT);
   digitalWrite(ENABLEPIN,LOW);
-
-  Serial.begin(115200);
     
   delay(100);
 
@@ -203,9 +203,11 @@ void setup()
 
     WiFi.softAP((const char *)hostname.c_str(), ap_default_psk);
   }
+  
+  Serial.begin(115200);
 
   //start UDP server.
-  Udp.begin(UDPLOCALPORT);
+  Udp.begin(localUdpPort);
 
   // Start OTA server.
   ArduinoOTA.setHostname((const char *)hostname.c_str());
@@ -224,22 +226,26 @@ void udploop(){
       incomingPacket[len] = 0;
     }
     String command = (String) incomingPacket;
-    
+    sendPacket("Received" + command);
     Serial.println(command);
+  }else{
+    
+    //transmit messages from serial.
+    while(Serial.available() > 0){
+      
+      String response = Serial.readString();
+      sendPacket(response);
+    }
   }
-  
-  //transmit messages from serial.
-  while(Serial.available() > 0){
-    
-    String response = Serial.readStringUntil('/r');
-    
+}
+
+void sendPacket(String response){
     Udp.beginPacket(Udp.remoteIP(), Udp.remotePort());
     int len = response.length() + 1;
     char buffer[len];
     response.toCharArray(buffer,len);
     Udp.write(buffer);
     Udp.endPacket();
-  }
 }
 
 /**
