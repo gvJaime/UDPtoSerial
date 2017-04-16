@@ -31,6 +31,8 @@
  * @brief Default WiFi connection information.
  * @{
  */
+#define ENABLEPIN 4
+ 
 const char* ap_default_psk = "esp8266esp8266"; ///< Default PSK.
 /// @}
 
@@ -129,6 +131,10 @@ void setup()
 {
   String station_ssid = "";
   String station_psk = "";
+
+  //Activate serial bridge.
+  pinMode(ENABLEPIN,OUTPUT);
+  digitalWrite(ENABLEPIN,LOW);
 
   Serial.begin(115200);
     
