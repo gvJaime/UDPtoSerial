@@ -1,15 +1,15 @@
 /**
  * @file OTA-mDNS-SPIFFS.ino
- * 
+ *
  * @author Pascal Gollor (http://www.pgollor.de/cms/)
  * @date 2015-09-18
- * 
+ *
  * changelog:
- * 2015-10-22: 
+ * 2015-10-22:
  * - Use new ArduinoOTA library.
  * - loadConfig function can handle different line endings
  * - remove mDNS studd. ArduinoOTA handle it.
- * 
+ *
  */
 
 // includes
@@ -19,6 +19,7 @@
 #include <FS.h>
 #include <ArduinoOTA.h>
 
+#define DEBUG
 
 /**
  * @brief mDNS and OTA Constants
@@ -32,24 +33,36 @@
  * @{
  */
 #define ENABLEPIN 4
- 
+
 const char* ap_default_psk = "esp8266esp8266"; ///< Default PSK.
 /// @}
 
+////////////////////////////////
+// UDP declarations
+////////////////////////////////
 #define UDPLOCALPORT 4201
 unsigned int localUdpPort = UDPLOCALPORT;  // local port to listen on
-
 
 char incomingPacket[255];  // buffer for incoming packets
 
 WiFiUDP Udp;
+
+////////////////////////////////
+// Serial utitlites
+////////////////////////////////
+
+#define ENDLINE '\n'
+
+char inputChar;
+char serialBuffer[255];
+int bufferIndex = 0;
 
 /**
  * @brief Read WiFi connection information from file system.
  * @param ssid String pointer for storing SSID.
  * @param pass String pointer for storing PSK.
  * @return True or False.
- * 
+ *
  * The config file have to containt the WiFi SSID in the first line
  * and the WiFi PSK in the second line.
  * Line seperator can be \r\n (CR LF) \r or \n.
@@ -66,7 +79,7 @@ bool loadConfig(String *ssid, String *pass)
   // Read content from config file.
   String content = configFile.readString();
   configFile.close();
-  
+
   content.trim();
 
   // Check if ther is a second line available.
@@ -121,7 +134,7 @@ bool saveConfig(String *ssid, String *pass)
   configFile.println(*pass);
 
   configFile.close();
-  
+
   return true;
 } // saveConfig
 
@@ -137,7 +150,7 @@ void setup()
   //Activate serial bridge.
   pinMode(ENABLEPIN,OUTPUT);
   digitalWrite(ENABLEPIN,LOW);
-    
+
   delay(100);
 
 
@@ -195,7 +208,7 @@ void setup()
     // ... print IP Address
   }
   else
-  {    
+  {
     // Go into software AP mode.
     WiFi.mode(WIFI_AP);
 
@@ -203,7 +216,7 @@ void setup()
 
     WiFi.softAP((const char *)hostname.c_str(), ap_default_psk);
   }
-  
+
   Serial.begin(115200);
 
   //start UDP server.
@@ -215,7 +228,6 @@ void setup()
 }
 
 void udploop(){
-  
   //receive incoming UDP packets, and pass them to serial.
   int packetSize = Udp.parsePacket();
   if (packetSize)
@@ -226,26 +238,42 @@ void udploop(){
       incomingPacket[len] = 0;
     }
     String command = (String) incomingPacket;
-    sendPacket("Received" + command);
+    #ifdef DEBUG
+      sendPacket("Received" + command);
+    #endif
     Serial.println(command);
-  }else{
-    
-    //transmit messages from serial.
-    while(Serial.available() > 0){
-      
-      String response = Serial.readString();
-      sendPacket(response);
-    }
   }
 }
 
-void sendPacket(String response){
+void fetchSerial(){
+  //transmit messages from serial.
+  while(Serial.available() > 0){
+    inputChar = Serial.read();
+    serialBuffer[bufferIndex] = inputChar;
+    bufferIndex++;
+    if(inputChar == ENDLINE){
+      sendPacket(serialBuffer, bufferIndex);
+      bufferIndex = 0;
+    }
+  }
+  return;
+}
+
+void sendPacket(char * response, int until){
     Udp.beginPacket(Udp.remoteIP(), Udp.remotePort());
-    int len = response.length() + 1;
-    char buffer[len];
-    response.toCharArray(buffer,len);
+    char buffer[until + 1];
+    strncpy(buffer, response, until);
     Udp.write(buffer);
     Udp.endPacket();
+}
+
+void sendPacket(String response){
+  Udp.beginPacket(Udp.remoteIP(), Udp.remotePort());
+  int len = response.length() + 1;
+  char buffer[len];
+  response.toCharArray(buffer,len);
+  Udp.write(buffer);
+  Udp.endPacket();
 }
 
 /**
@@ -258,4 +286,3 @@ void loop()
   ArduinoOTA.handle();
   yield();
 }
-
