@@ -18,6 +18,7 @@
 #include <WiFiUdp.h>
 #include <FS.h>
 #include <ArduinoOTA.h>
+#include <Ticker.h>
 
 #define DEBUG
 
@@ -47,11 +48,18 @@ char incomingPacket[255];  // buffer for incoming packets
 
 WiFiUDP Udp;
 
+uint16_t firstPort;
+IPAddress firstIP;
+bool logged = false;
+
 ////////////////////////////////
 // Serial utitlites
 ////////////////////////////////
 
+Ticker serialInput;
+Ticker pinger;
 #define ENDLINE '\n'
+#define SERIAL_FRAMERATE 0.1
 
 char inputChar;
 char serialBuffer[255];
@@ -222,6 +230,8 @@ void setup()
   //start UDP server.
   Udp.begin(localUdpPort);
 
+
+
   // Start OTA server.
   ArduinoOTA.setHostname((const char *)hostname.c_str());
   ArduinoOTA.begin();
@@ -238,42 +248,83 @@ void udploop(){
       incomingPacket[len] = 0;
     }
     String command = (String) incomingPacket;
+    if(command.equals("Login") && !logged){
+      login();
+    }else{
+      if(logged) Serial.println(command);
+    }
     #ifdef DEBUG
-      sendPacket("Received" + command);
+      sendPacket("Received: " + command + String(Serial.available()));
     #endif
-    Serial.println(command);
   }
+  return;
 }
 
 void fetchSerial(){
   //transmit messages from serial.
   while(Serial.available() > 0){
+    #ifdef DEBUG
+      String deb = "Message detected!";
+      sendPacket(deb);
+    #endif
     inputChar = Serial.read();
     serialBuffer[bufferIndex] = inputChar;
     bufferIndex++;
     if(inputChar == ENDLINE){
+      #ifdef DEBUG
+        deb = "Message for you!";
+        sendPacket(deb);
+      #endif
       sendPacket(serialBuffer, bufferIndex);
       bufferIndex = 0;
+      break;
     }
   }
   return;
 }
 
+void fetchSerial_Until(){
+  //transmit messages from serial.
+  if(Serial.available() > 0){
+    String response = Serial.readStringUntil(ENDLINE);
+    sendPacket(response);
+  }
+  return;
+}
+
+void ping(){
+  sendPacket("Ping");
+}
+
+void login(){
+  firstIP = Udp.remoteIP();
+  firstPort = Udp.remotePort();
+  pinger.attach(1,ping);
+  serialInput.attach(SERIAL_FRAMERATE,fetchSerial_Until);
+  logged = true;
+  sendPacket("LOGGED");
+}
+
 void sendPacket(char * response, int until){
-    Udp.beginPacket(Udp.remoteIP(), Udp.remotePort());
+  if(logged){
     char buffer[until + 1];
     strncpy(buffer, response, until);
+    Udp.beginPacket(firstIP, firstPort);
     Udp.write(buffer);
     Udp.endPacket();
+  }
+  return;
 }
 
 void sendPacket(String response){
-  Udp.beginPacket(Udp.remoteIP(), Udp.remotePort());
-  int len = response.length() + 1;
-  char buffer[len];
-  response.toCharArray(buffer,len);
-  Udp.write(buffer);
-  Udp.endPacket();
+  if(logged){
+    int len = response.length() + 1;
+    char buffer[len];
+    response.toCharArray(buffer,len);
+    Udp.beginPacket(firstIP, firstPort);
+    Udp.write(buffer);
+    Udp.endPacket();
+  }
 }
 
 /**
